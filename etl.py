@@ -1,133 +1,181 @@
-import pandas as pd
+```python
+import os
 from sqlalchemy import create_engine
-import time
+from lineage_tracker import LineageTracker
 
-from engines.spline_engine import push_table_spline_lineage
+# --------------------------------------------------
+# Database
+# --------------------------------------------------
 
 engine = create_engine(
     "mysql+pymysql://root:password@localhost:3307/governance_db"
 )
 
+# --------------------------------------------------
+# Tracker
+# --------------------------------------------------
+
+tracker = LineageTracker(
+    job_name="Orders Transactions ETL"
+)
+
+# --------------------------------------------------
+# Helper
+# --------------------------------------------------
+
 def clean_email(email):
-    if pd.isna(email):
+    if email is None:
         return None
 
-    email = str(email).replace("#", "@")
+    email = str(email)
+
+    if email == "(NULL)":
+        return None
+
+    email = email.replace("#", "@")
+
+    if "@" not in email:
+        if "gmail.com" in email:
+            email = email.replace(
+                "gmail.com",
+                "@gmail.com"
+            )
+
     return email
 
-# -----------------------
-# CUSTOMERS
-# -----------------------
 
-customers = pd.read_csv("data/customers.csv")
-
-customers["email"] = customers["email"].apply(clean_email)
-
-customers.to_sql(
-    "customers",
-    con=engine,
-    if_exists="replace",
-    index=False
-)
-
-push_table_spline_lineage(
-    integration_name="GitHub ETL Demo",
-    table_name="customers",
-    columns=customers.columns.tolist(),
-    source_uri="file://customers.csv",
-    target_uri="mysql://governance_db/customers",
-    duration_seconds=1
-)
-
-# -----------------------
+# --------------------------------------------------
 # ORDERS
-# -----------------------
+# --------------------------------------------------
 
-orders = pd.read_csv("data/orders.csv")
-
-orders["amount"] = (
-    pd.to_numeric(
-        orders["amount"],
-        errors="coerce"
-    )
-    .fillna(0)
-    .abs()
+orders = tracker.read_csv(
+    "data/raw_orders.csv",
+    source_uri="github://etl-demo/data/raw_orders.csv",
+    source_dataset="raw_orders"
 )
 
-orders.to_sql(
-    "orders",
-    con=engine,
-    if_exists="replace",
-    index=False
+orders = tracker.drop_duplicates(
+    orders,
+    subset=["order_id"]
 )
 
-push_table_spline_lineage(
-    integration_name="GitHub ETL Demo",
+orders["email"] = tracker.apply_column(
+    orders,
+    "email",
+    clean_email,
+    "clean_email"
+)
+
+orders["amount"] = tracker.to_numeric(
+    orders,
+    "amount"
+)
+
+orders["amount"] = tracker.abs_column(
+    orders,
+    "amount"
+)
+
+orders = tracker.to_datetime(
+    orders,
+    ["order_date"]
+)
+
+tracker.to_sql(
+    orders,
     table_name="orders",
-    columns=orders.columns.tolist(),
-    source_uri="file://orders.csv",
-    target_uri="mysql://governance_db/orders",
-    duration_seconds=1
+    con=engine,
+    target_uri="mariadb://governance_db/orders"
 )
 
-# -----------------------
+# --------------------------------------------------
+# TRANSACTIONS
+# --------------------------------------------------
+
+transactions = tracker.read_csv(
+    "data/raw_transactions.csv",
+    source_uri="github://etl-demo/data/raw_transactions.csv",
+    source_dataset="raw_transactions"
+)
+
+transactions = tracker.drop_duplicates(
+    transactions,
+    subset=["transaction_id"]
+)
+
+transactions["amount"] = tracker.to_numeric(
+    transactions,
+    "amount"
+)
+
+transactions["amount"] = tracker.abs_column(
+    transactions,
+    "amount"
+)
+
+transactions = tracker.to_datetime(
+    transactions,
+    ["transaction_date"]
+)
+
+tracker.to_sql(
+    transactions,
+    table_name="transactions",
+    con=engine,
+    target_uri="mariadb://governance_db/transactions"
+)
+
+# --------------------------------------------------
 # JOIN
-# -----------------------
+# --------------------------------------------------
 
-customer_orders = orders.merge(
-    customers,
-    on="customer_id",
-    how="left"
+order_transactions = tracker.merge_dataframes(
+    orders,
+    transactions,
+    on="order_id",
+    how="inner"
 )
 
-customer_orders["total_value"] = (
-    customer_orders["amount"] * 1.18
-)
-
-customer_orders.to_sql(
-    "customer_orders",
+tracker.to_sql(
+    order_transactions,
+    table_name="order_transactions",
     con=engine,
-    if_exists="replace",
-    index=False
+    target_uri="mariadb://governance_db/order_transactions"
 )
 
-push_table_spline_lineage(
-    integration_name="GitHub ETL Demo",
-    table_name="customer_orders",
-    columns=customer_orders.columns.tolist(),
-    source_uri="mysql://governance_db/orders,mysql://governance_db/customers",
-    target_uri="mysql://governance_db/customer_orders",
-    duration_seconds=1
-)
-
-# -----------------------
+# --------------------------------------------------
 # AGGREGATION
-# -----------------------
+# --------------------------------------------------
 
-summary = (
-    customer_orders
-    .groupby("customer_id")
-    .agg(
-        total_orders=("order_id", "count"),
-        total_amount=("amount", "sum")
-    )
-    .reset_index()
+payment_summary = tracker.groupby_agg(
+    order_transactions,
+    group_cols=["payment_method"],
+    agg_dict={
+        "amount": "sum"
+    }
 )
 
-summary.to_sql(
-    "customer_summary",
+tracker.to_sql(
+    payment_summary,
+    table_name="payment_summary",
     con=engine,
-    if_exists="replace",
-    index=False
+    target_uri="mariadb://governance_db/payment_summary"
 )
 
-push_table_spline_lineage(
-    integration_name="GitHub ETL Demo",
-    table_name="customer_summary",
-    columns=summary.columns.tolist(),
-    source_uri="mysql://governance_db/customer_orders",
-    target_uri="mysql://governance_db/customer_summary",
-    duration_seconds=1
-)
+# --------------------------------------------------
+# FINALIZE
+# --------------------------------------------------
+
+lineage = tracker.finalize()
 
 print("ETL completed successfully")
+print(
+    f"Datasets tracked: "
+    f"{len(lineage['dataset_lineage'])}"
+)
+
+print(
+    f"Columns tracked: "
+    f"{len(lineage['column_lineage'])}"
+)
+```
