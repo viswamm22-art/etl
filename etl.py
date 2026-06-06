@@ -24,7 +24,7 @@ SPLINE_PRODUCER_URL = os.getenv("SPLINE_PRODUCER_URL", "http://localhost:8080/pr
 SPARK_MASTER       = os.getenv("SPARK_MASTER", "local[*]")
 SPARK_PARTITIONS   = os.getenv("SPARK_SHUFFLE_PARTITIONS", "4")
 SPLINE_AGENT_VER   = os.getenv("SPLINE_AGENT_VERSION", "2.2.1")
-MARIADB_JAR_VER    = os.getenv("MARIADB_DRIVER_VERSION", "3.3.3")
+MARIADB_JAR_VER    = os.getenv("MARIADB_DRIVER_VERSION", "2.7.9")
 POSTGRES_JAR_VER   = os.getenv("POSTGRES_DRIVER_VERSION", "42.7.3")
 
 # ── Parse PostgreSQL URL → JDBC parts ─────────────────────────────────────────
