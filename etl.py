@@ -36,10 +36,9 @@ PG_HOST = _p.hostname or "localhost"
 PG_PORT = _p.port or 5432
 TARGET_DB = os.getenv("TARGET_DB_NAME", "company_data")
 
-SOURCE_JDBC = f"jdbc:mariadb://{MARIADB_HOST}:{MARIADB_PORT}/{MARIADB_DB}"
+SOURCE_JDBC = f"jdbc:mysql://{MARIADB_HOST}:{MARIADB_PORT}/{MARIADB_DB}?permitMysqlScheme"
 TARGET_JDBC = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{TARGET_DB}"
 
-# ── Java 17 fix ───────────────────────────────────────────────────────────────
 _JAVA_OPENS = "--add-opens=java.base/sun.net.www.protocol.jar=ALL-UNNAMED"
 if _JAVA_OPENS not in os.environ.get("JDK_JAVA_OPTIONS", ""):
     os.environ["JDK_JAVA_OPTIONS"] = f"{os.environ.get('JDK_JAVA_OPTIONS','').strip()} {_JAVA_OPENS}".strip()
